@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>PDF編集風ツール（日本語対応）</title>
+  <script src="https://cdn.jsdelivr.net/npm/pdf-lib/dist/pdf-lib.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit/dist/fontkit.umd.min.js"></script>
+  <script src="https://kyokench.github.io/4masumemo/NotoSansJP-Regular-base64_2.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    label { display: block; margin: 8px 0; }
+    iframe { width: 100%; height: 600px; border: 1px solid #ccc; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h2>PDFテキスト編集風ツール（日本語対応）</h2>
+
+  <input type="file" id="pdfInput" accept="application/pdf"><br><br>
+
+  <label>上書きテキスト: <input type="text" id="textValue" value="テスト"></label>
+  <label>X座標: <input type="number" id="xValue" value="100"></label>
+  <label>Y座標（上から）: <input type="number" id="yValue" value="150"></label>
+  <label>幅（塗りつぶし）: <input type="number" id="widthValue" value="300"></label>
+  <label>高さ: <input type="number" id="heightValue" value="30"></label><br>
+
+  <button onclick="applyEdit()">テキストを上書き＆プレビュー</button>
+  <button onclick="downloadPdf()">PDFを保存</button>
+
+  <iframe id="previewFrame" title="PDFプレビュー"></iframe>
+
+  <script>
+    let originalBytes = null;
+
+    document.getElementById('pdfInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      originalBytes = await file.arrayBuffer();
+      await renderPreview(originalBytes);
+    });
+
+    async function applyEdit() {
+      if (!originalBytes) {
+        alert("PDFを先に読み込んでください。");
+        return;
+      }
+
+      const pdfDoc = await PDFLib.PDFDocument.load(originalBytes);
+      pdfDoc.registerFontkit(fontkit); // PDF-LIB用 fontkit を登録
+
+      const fontBytes = Uint8Array.from(atob(window.NotoSansJP_Base64), c => c.charCodeAt(0));
+      const customFont = await pdfDoc.embedFont(fontBytes);
+
+      const page = pdfDoc.getPages()[0];
+      const pageHeight = page.getHeight();
+
+      const text = document.getElementById('textValue').value;
+      const x = parseFloat(document.getElementById('xValue').value);
+      const inputY = parseFloat(document.getElementById('yValue').value);
+      const y = pageHeight - inputY;
+      const width = parseFloat(document.getElementById('widthValue').value);
+      const height = parseFloat(document.getElementById('heightValue').value);
+
+      page.drawRectangle({
+        x, y, width, height,
+        color: PDFLib.rgb(1, 1, 1),
+      });
+
+      page.drawText(text, {
+        x: x + 5,
+        y: y + 5,
+        size: 16,
+        font: customFont,
+        color: PDFLib.rgb(0, 0, 0),
+      });
+
+      const editedBytes = await pdfDoc.save();
+      originalBytes = editedBytes;
+      await renderPreview(editedBytes);
+    }
+
+    async function renderPreview(bytes) {
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      document.getElementById('previewFrame').src = url;
+    }
+
+    async function downloadPdf() {
+      if (!originalBytes) return;
+      const blob = new Blob([originalBytes], { type: 'application/pdf' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'edited.pdf';
+      a.click();
+    }
+  </script>
+</body>
+</html>
