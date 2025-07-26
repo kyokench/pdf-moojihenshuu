@@ -271,6 +271,7 @@
         <button id="drawBtn" title="描画">✏️ 描画</button>
         <button id="textBtn" title="テキスト追加">📝 テキスト</button>
         <button id="highlightBtn" title="ハイライト">🖍️ ハイライト</button>
+        <button id="rectangleBtn" title="塗りつぶし四角形">⬛ 四角形</button>
         <button id="eraseBtn" title="消しゴム">🧽 消去</button>
         
         <input type="color" id="colorPicker" class="color-picker" value="#ff0000" title="色選択">
@@ -326,6 +327,11 @@
         let currentColor = '#ff0000';
         let currentSize = 3;
         let textPosition = null;
+        
+        // Rectangle drawing variables
+        let isDrawingRectangle = false;
+        let rectangleStartX = 0;
+        let rectangleStartY = 0;
 
         // Canvas elements
         const pdfCanvas = document.getElementById('pdfCanvas');
@@ -376,6 +382,7 @@
         document.getElementById('drawBtn').addEventListener('click', () => setEditMode('draw'));
         document.getElementById('textBtn').addEventListener('click', () => setEditMode('text'));
         document.getElementById('highlightBtn').addEventListener('click', () => setEditMode('highlight'));
+        document.getElementById('rectangleBtn').addEventListener('click', () => setEditMode('rectangle'));
         document.getElementById('eraseBtn').addEventListener('click', () => setEditMode('erase'));
         document.getElementById('undoBtn').addEventListener('click', undo);
         document.getElementById('clearBtn').addEventListener('click', clearAll);
@@ -560,17 +567,31 @@
             document.querySelectorAll('.toolbar button').forEach(btn => btn.classList.remove('active'));
             document.getElementById(mode + 'Btn').classList.add('active');
             
-            editCanvas.style.cursor = mode === 'text' ? 'text' : 'crosshair';
+            if (mode === 'text') {
+                editCanvas.style.cursor = 'text';
+            } else if (mode === 'rectangle') {
+                editCanvas.style.cursor = 'crosshair';
+            } else {
+                editCanvas.style.cursor = 'crosshair';
+            }
         }
 
         function startDrawing(e) {
             if (editMode === 'text') return;
             
-            isDrawing = true;
             const rect = editCanvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
+            const x = (e.clientX - rect.left) * (editCanvas.width / rect.width);
+            const y = (e.clientY - rect.top) * (editCanvas.height / rect.height);
 
+            if (editMode === 'rectangle') {
+                isDrawingRectangle = true;
+                rectangleStartX = x;
+                rectangleStartY = y;
+                saveState();
+                return;
+            }
+
+            isDrawing = true;
             editCtx.beginPath();
             editCtx.moveTo(x, y);
             
@@ -578,11 +599,28 @@
         }
 
         function draw(e) {
-            if (!isDrawing || editMode === 'text') return;
-
             const rect = editCanvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
+            const x = (e.clientX - rect.left) * (editCanvas.width / rect.width);
+            const y = (e.clientY - rect.top) * (editCanvas.height / rect.height);
+
+            if (editMode === 'rectangle' && isDrawingRectangle) {
+                // Clear and redraw with preview
+                const lastState = editHistory[editHistory.length - 1];
+                if (lastState) {
+                    editCtx.putImageData(lastState, 0, 0);
+                }
+                
+                // Draw preview rectangle
+                editCtx.fillStyle = currentColor;
+                editCtx.globalAlpha = 0.7;
+                const width = x - rectangleStartX;
+                const height = y - rectangleStartY;
+                editCtx.fillRect(rectangleStartX, rectangleStartY, width, height);
+                editCtx.globalAlpha = 1.0;
+                return;
+            }
+
+            if (!isDrawing || editMode === 'text' || editMode === 'rectangle') return;
 
             editCtx.lineWidth = currentSize;
             editCtx.lineCap = 'round';
@@ -604,7 +642,24 @@
             editCtx.stroke();
         }
 
-        function stopDrawing() {
+        function stopDrawing(e) {
+            if (editMode === 'rectangle' && isDrawingRectangle) {
+                const rect = editCanvas.getBoundingClientRect();
+                const x = (e.clientX - rect.left) * (editCanvas.width / rect.width);
+                const y = (e.clientY - rect.top) * (editCanvas.height / rect.height);
+                
+                // Draw final rectangle
+                editCtx.fillStyle = currentColor;
+                editCtx.globalAlpha = 0.7;
+                const width = x - rectangleStartX;
+                const height = y - rectangleStartY;
+                editCtx.fillRect(rectangleStartX, rectangleStartY, width, height);
+                editCtx.globalAlpha = 1.0;
+                
+                isDrawingRectangle = false;
+                return;
+            }
+
             isDrawing = false;
             editCtx.beginPath();
         }
@@ -613,8 +668,8 @@
             if (editMode === 'text') {
                 const rect = editCanvas.getBoundingClientRect();
                 textPosition = {
-                    x: e.clientX - rect.left,
-                    y: e.clientY - rect.top
+                    x: (e.clientX - rect.left) * (editCanvas.width / rect.width),
+                    y: (e.clientY - rect.top) * (editCanvas.height / rect.height)
                 };
                 showTextModal();
             }
