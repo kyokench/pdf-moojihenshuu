@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Editor</title>
+    <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .header h1 {
+            color: white;
+            font-size: 2rem;
+            font-weight: 300;
+            text-align: center;
+        }
+
+        .toolbar {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 1rem 2rem;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .toolbar button {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .toolbar button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .toolbar button.active {
+            background: linear-gradient(45deg, #764ba2, #667eea);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .file-input {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+
+        .file-input input[type=file] {
+            position: absolute;
+            left: -9999px;
+        }
+
+        .file-input label {
+            background: linear-gradient(45deg, #28a745, #20c997);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-block;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .file-input label:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .color-picker {
+            width: 40px;
+            height: 40px;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .size-input {
+            width: 60px;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .sidebar {
+            width: 250px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 1rem;
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .page-thumbnails {
+            color: white;
+        }
+
+        .page-thumbnail {
+            width: 100%;
+            margin-bottom: 1rem;
+            padding: 0.5rem;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .page-thumbnail:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.02);
+        }
+
+        .page-thumbnail.active {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .canvas-container {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 2rem;
+            overflow: auto;
+            min-height: 400px;
+        }
+
+        .canvas-wrapper {
+            position: relative;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            overflow: visible;
+            display: inline-block;
+        }
+
+        #pdfCanvas, #editCanvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            border: 1px solid #ddd;
+        }
+        
+        #pdfCanvas {
+            z-index: 1;
+        }
+        
+        #editCanvas {
+            z-index: 2;
+            cursor: crosshair;
+        }
+
+        #editCanvas {
+            cursor: crosshair;
+        }
+
+        .editCanvas.text-mode {
+            cursor: text;
+        }
+
+        .zoom-controls {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .zoom-controls button {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.9);
+            border: none;
+            cursor: pointer;
+            font-size: 1.2rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .zoom-controls button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .no-pdf {
+            text-align: center;
+            color: white;
+            font-size: 1.2rem;
+            margin-top: 3rem;
+        }
+
+        .text-input-modal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            display: none;
+        }
+
+        .text-input-modal input {
+            width: 300px;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-right: 1rem;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔧 PDF Editor</h1>
+    </div>
+
+    <div class="toolbar">
+        <div class="file-input">
+            <input type="file" id="fileInput" accept=".pdf">
+            <label for="fileInput">📁 PDFを開く</label>
+        </div>
+        
+        <button id="drawBtn" title="描画">✏️ 描画</button>
+        <button id="textBtn" title="テキスト追加">📝 テキスト</button>
+        <button id="highlightBtn" title="ハイライト">🖍️ ハイライト</button>
+        <button id="rectangleBtn" title="塗りつぶし四角形">⬛ 四角形</button>
+        <button id="eraseBtn" title="消しゴム">🧽 消去</button>
+        
+        <input type="color" id="colorPicker" class="color-picker" value="#ff0000" title="色選択">
+        
+        <label>サイズ:</label>
+        <input type="number" id="sizeInput" class="size-input" value="3" min="1" max="50">
+        
+        <button id="undoBtn" title="元に戻す">↶ 戻す</button>
+        <button id="clearBtn" title="すべてクリア">🗑️ クリア</button>
+        <button id="downloadBtn" title="編集したPDFまたは画像を保存">💾 保存</button>
+    </div>
+
+    <div class="main-content">
+        <div class="sidebar">
+            <h3 style="color: white; margin-bottom: 1rem;">ページ</h3>
+            <div id="pageThumbnails" class="page-thumbnails"></div>
+        </div>
+
+        <div class="canvas-container">
+            <div id="canvasWrapper" class="canvas-wrapper" style="display: none;">
+                <canvas id="pdfCanvas"></canvas>
+                <canvas id="editCanvas"></canvas>
+            </div>
+            <div id="noPdf" class="no-pdf">
+                <p>PDFファイルを選択してください</p>
+                <p style="font-size: 0.9rem; margin-top: 1rem; opacity: 0.8;">
+                    編集、注釈、描画機能を使用できます
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <div class="zoom-controls">
+        <button id="zoomOutBtn" title="縮小">-</button>
+        <button id="zoomInBtn" title="拡大">+</button>
+    </div>
+
+    <div class="modal-overlay" id="modalOverlay"></div>
+    <div class="text-input-modal" id="textModal">
+        <input type="text" id="textInput" placeholder="テキストを入力...">
+        <button onclick="addText()">追加</button>
+        <button onclick="closeTextModal()">キャンセル</button>
+    </div>
+
+    <script>
+        // Global variables
+        let pdfDoc = null;
+        let currentPage = 1;
+        let scale = 1.0;
+        let editMode = 'draw';
+        let isDrawing = false;
+        let editHistory = [];
+        let currentColor = '#ff0000';
+        let currentSize = 3;
+        let textPosition = null;
+        
+        // Rectangle drawing variables
+        let isDrawingRectangle = false;
+        let rectangleStartX = 0;
+        let rectangleStartY = 0;
+
+        // Keep track of drawn rectangles so that we can reapply them directly in
+        // the generated PDF without relying on the rasterised overlay. Each
+        // rectangle stores its top-left corner, dimensions, fill colour and
+        // the page number it was drawn on.
+        const rectangles = [];
+
+        /**
+         * Convert a hex colour string to an object of normalised RGB
+         * components (0–1).  pdf-lib accepts colour values in this form.
+         *
+         * @param {string} hex A CSS hex colour (e.g. '#ff00aa' or '#f0a').
+         * @returns {{r:number,g:number,b:number}} The red, green and blue
+         *          components scaled from 0 to 1.
+         */
+        function hexToRgb(hex) {
+            let cleaned = hex.replace(/^#/, '');
+            if (cleaned.length === 3) {
+                cleaned = cleaned.split('').map(ch => ch + ch).join('');
+            }
+            const num = parseInt(cleaned, 16);
+            const r = (num >> 16) & 0xff;
+            const g = (num >> 8) & 0xff;
+            const b = num & 0xff;
+            return { r: r / 255, g: g / 255, b: b / 255 };
+        }
+
+        // Canvas elements
+        const pdfCanvas = document.getElementById('pdfCanvas');
+        const editCanvas = document.getElementById('editCanvas');
+        const pdfCtx = pdfCanvas.getContext('2d');
+        const editCtx = editCanvas.getContext('2d');
+
+        // UI elements
+        const fileInput = document.getElementById('fileInput');
+        const canvasWrapper = document.getElementById('canvasWrapper');
+        const noPdf = document.getElementById('noPdf');
+        const colorPicker = document.getElementById('colorPicker');
+        const sizeInput = document.getElementById('sizeInput');
+
+        // Initialize when page loads
+        window.addEventListener('load', function() {
+            console.log('ページ読み込み完了');
+            console.log('PDFLib available:', typeof PDFLib !== 'undefined');
+            console.log('pdfjsLib available:', typeof pdfjsLib !== 'undefined');
+            
+            // Set up PDF.js worker after libraries are loaded
+            if (typeof pdfjsLib !== 'undefined') {
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+                console.log('PDF.js worker configured');
+            } else {
+                console.error('pdfjsLib が読み込まれていません');
+            }
+            
+            if (typeof PDFLib === 'undefined') {
+                console.error('PDFLib が読み込まれていません');
+                // 代替として保存機能を無効化
+                document.getElementById('downloadBtn').disabled = true;
+                document.getElementById('downloadBtn').title = 'PDF保存機能が利用できません';
+            }
+        });
+
+        // Set up PDF.js worker (fallback)
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+        }
+
+        // Event listeners
+        fileInput.addEventListener('change', handleFileSelect);
+        colorPicker.addEventListener('change', (e) => currentColor = e.target.value);
+        sizeInput.addEventListener('change', (e) => currentSize = parseInt(e.target.value));
+
+        // Tool buttons
+        document.getElementById('drawBtn').addEventListener('click', () => setEditMode('draw'));
+        document.getElementById('textBtn').addEventListener('click', () => setEditMode('text'));
+        document.getElementById('highlightBtn').addEventListener('click', () => setEditMode('highlight'));
+        document.getElementById('rectangleBtn').addEventListener('click', () => setEditMode('rectangle'));
+        document.getElementById('eraseBtn').addEventListener('click', () => setEditMode('erase'));
+        document.getElementById('undoBtn').addEventListener('click', undo);
+        document.getElementById('clearBtn').addEventListener('click', clearAll);
+        document.getElementById('downloadBtn').addEventListener('click', downloadPDF);
+
+        // Zoom controls
+        document.getElementById('zoomInBtn').addEventListener('click', () => zoom(1.2));
+        document.getElementById('zoomOutBtn').addEventListener('click', () => zoom(0.8));
+
+        // Canvas events
+        editCanvas.addEventListener('mousedown', startDrawing);
+        editCanvas.addEventListener('mousemove', draw);
+        editCanvas.addEventListener('mouseup', stopDrawing);
+        editCanvas.addEventListener('click', handleCanvasClick);
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            console.log('ファイル選択:', file);
+            
+            if (!file) {
+                console.log('ファイルが選択されていません');
+                return;
+            }
+
+            if (file.type !== 'application/pdf') {
+                console.log('PDFファイルではありません:', file.type);
+                alert('PDFファイルを選択してください。');
+                return;
+            }
+
+            // Check if pdfjsLib is available
+            if (typeof pdfjsLib === 'undefined') {
+                console.error('pdfjsLib が利用できません');
+                alert('PDF表示機能が初期化されていません。ページを再読み込みしてください。');
+                return;
+            }
+
+            console.log('PDFファイルを読み込み中...');
+            const fileReader = new FileReader();
+            
+            fileReader.onload = function(e) {
+                console.log('ファイル読み込み完了');
+                const typedarray = new Uint8Array(e.target.result);
+                loadPDF(typedarray);
+            };
+            
+            fileReader.onerror = function(e) {
+                console.error('ファイル読み込みエラー:', e);
+                alert('ファイルの読み込みに失敗しました。');
+            };
+            
+            fileReader.readAsArrayBuffer(file);
+        }
+
+        async function loadPDF(data) {
+            try {
+                console.log('PDFドキュメントを解析中...');
+                
+                // Double check if pdfjsLib is available
+                if (typeof pdfjsLib === 'undefined') {
+                    throw new Error('pdfjsLib が利用できません');
+                }
+                
+                const loadingTask = pdfjsLib.getDocument({
+                    data: data,
+                    cMapUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',
+                    cMapPacked: true
+                });
+                
+                pdfDoc = await loadingTask.promise;
+                console.log('PDF読み込み成功。ページ数:', pdfDoc.numPages);
+                
+                currentPage = 1;
+                scale = 1.0;
+                
+                await renderPage(currentPage);
+                await createPageThumbnails();
+                
+                noPdf.style.display = 'none';
+                canvasWrapper.style.display = 'block';
+                
+                console.log('PDF表示完了');
+                
+            } catch (error) {
+                console.error('PDF読み込みエラー:', error);
+                alert(`PDFの読み込みに失敗しました: ${error.message}`);
+            }
+        }
+
+        async function renderPage(pageNum) {
+            try {
+                console.log(`ページ ${pageNum} をレンダリング中...`);
+                
+                const page = await pdfDoc.getPage(pageNum);
+                const viewport = page.getViewport({ scale: scale });
+
+                console.log('ビューポートサイズ:', viewport.width, 'x', viewport.height);
+
+                // キャンバスの実際のサイズを設定
+                pdfCanvas.width = viewport.width;
+                pdfCanvas.height = viewport.height;
+                editCanvas.width = viewport.width;
+                editCanvas.height = viewport.height;
+
+                // 表示サイズを設定（適切なサイズに調整）
+                const maxWidth = 800;
+                const scale_factor = Math.min(1, maxWidth / viewport.width);
+                const displayWidth = viewport.width * scale_factor;
+                const displayHeight = viewport.height * scale_factor;
+                
+                pdfCanvas.style.width = displayWidth + 'px';
+                pdfCanvas.style.height = displayHeight + 'px';
+                editCanvas.style.width = displayWidth + 'px';
+                editCanvas.style.height = displayHeight + 'px';
+                
+                // canvas-wrapperのサイズも設定
+                canvasWrapper.style.width = displayWidth + 'px';
+                canvasWrapper.style.height = displayHeight + 'px';
+
+                console.log('表示サイズ:', displayWidth, 'x', displayHeight);
+
+                // 既存の描画をクリア
+                pdfCtx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+
+                const renderContext = {
+                    canvasContext: pdfCtx,
+                    viewport: viewport
+                };
+
+                console.log('ページレンダリング開始...');
+                await page.render(renderContext).promise;
+                console.log('ページレンダリング完了');
+                
+                // 編集履歴をクリア
+                editHistory = [];
+                clearEditCanvas();
+                
+            } catch (error) {
+                console.error('ページレンダリングエラー:', error);
+                alert(`ページ ${pageNum} の表示に失敗しました: ${error.message}`);
+            }
+        }
+
+        async function createPageThumbnails() {
+            const thumbnailContainer = document.getElementById('pageThumbnails');
+            thumbnailContainer.innerHTML = '';
+
+            console.log('サムネイル作成中...', pdfDoc.numPages, 'ページ');
+
+            for (let i = 1; i <= pdfDoc.numPages; i++) {
+                const thumbnail = document.createElement('div');
+                thumbnail.className = 'page-thumbnail';
+                if (i === currentPage) {
+                    thumbnail.classList.add('active');
+                }
+                thumbnail.innerHTML = `<div>ページ ${i}</div>`;
+                thumbnail.addEventListener('click', () => goToPage(i));
+                thumbnailContainer.appendChild(thumbnail);
+            }
+            
+            console.log('サムネイル作成完了');
+        }
+
+        async function goToPage(pageNum) {
+            if (pageNum >= 1 && pageNum <= pdfDoc.numPages) {
+                currentPage = pageNum;
+                await renderPage(currentPage);
+                clearEditCanvas();
+                updateThumbnailSelection();
+            }
+        }
+
+        function updateThumbnailSelection() {
+            const thumbnails = document.querySelectorAll('.page-thumbnail');
+            thumbnails.forEach((thumb, index) => {
+                thumb.classList.toggle('active', index + 1 === currentPage);
+            });
+        }
+
+        function setEditMode(mode) {
+            editMode = mode;
+            document.querySelectorAll('.toolbar button').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(mode + 'Btn').classList.add('active');
+            
+            if (mode === 'text') {
+                editCanvas.style.cursor = 'text';
+            } else if (mode === 'rectangle') {
+                editCanvas.style.cursor = 'crosshair';
+            } else {
+                editCanvas.style.cursor = 'crosshair';
+            }
+        }
+
+        function startDrawing(e) {
+            if (editMode === 'text') return;
+            
+            const rect = editCanvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left) * (editCanvas.width / rect.width);
+            const y = (e.clientY - rect.top) * (editCanvas.height / rect.height);
+
+            if (editMode === 'rectangle') {
+                isDrawingRectangle = true;
+                rectangleStartX = x;
+                rectangleStartY = y;
+                saveState();
+                return;
+            }
+
+            isDrawing = true;
+            editCtx.beginPath();
+            editCtx.moveTo(x, y);
+            
+            saveState();
+        }
+
+        function draw(e) {
+            const rect = editCanvas.getBoundingClientRect();
+            const x = (e.clientX - rect.left) * (editCanvas.width / rect.width);
+            const y = (e.clientY - rect.top) * (editCanvas.height / rect.height);
+
+            if (editMode === 'rectangle' && isDrawingRectangle) {
+                // Clear and redraw with preview
+                const lastState = editHistory[editHistory.length - 1];
+                if (lastState) {
+                    editCtx.putImageData(lastState, 0, 0);
+                }
+                
+                // Draw preview rectangle
+                editCtx.fillStyle = currentColor;
+                editCtx.globalAlpha = 1.0;
+                const width = x - rectangleStartX;
+                const height = y - rectangleStartY;
+                editCtx.fillRect(rectangleStartX, rectangleStartY, width, height);
+                editCtx.globalAlpha = 1.0;
+                return;
+            }
+
+            if (!isDrawing || editMode === 'text' || editMode === 'rectangle') return;
+
+            editCtx.lineWidth = currentSize;
+            editCtx.lineCap = 'round';
+            
+            if (editMode === 'erase') {
+                editCtx.globalCompositeOperation = 'destination-out';
+            } else {
+                editCtx.globalCompositeOperation = 'source-over';
+                editCtx.strokeStyle = currentColor;
+                
+                if (editMode === 'highlight') {
+                    editCtx.globalAlpha = 0.3;
+                } else {
+                    editCtx.globalAlpha = 1.0;
+                }
+            }
+
+            editCtx.lineTo(x, y);
+            editCtx.stroke();
+        }
+
+        function stopDrawing(e) {
+            if (editMode === 'rectangle' && isDrawingRectangle) {
+                const rect = editCanvas.getBoundingClientRect();
+                const x = (e.clientX - rect.left) * (editCanvas.width / rect.width);
+                const y = (e.clientY - rect.top) * (editCanvas.height / rect.height);
+
+                // Calculate top-left coordinates and positive dimensions
+                const startX = rectangleStartX;
+                const startY = rectangleStartY;
+                const endX = x;
+                const endY = y;
+                const drawX = Math.floor(Math.min(startX, endX));
+                const drawY = Math.floor(Math.min(startY, endY));
+                let drawW = Math.floor(Math.abs(endX - startX));
+                let drawH = Math.floor(Math.abs(endY - startY));
+                // Ensure at least 1 pixel so vector rectangle is drawn
+                drawW = Math.max(drawW, 1);
+                drawH = Math.max(drawH, 1);
+
+                // Disable smoothing to avoid anti-aliased edges
+                editCtx.imageSmoothingEnabled = false;
+
+                // Draw the rectangle onto the edit canvas so the user can see it
+                editCtx.globalAlpha = 1.0;
+                editCtx.fillStyle = currentColor;
+                editCtx.fillRect(drawX, drawY, drawW, drawH);
+
+                // Record rectangle for later PDF export
+                rectangles.push({
+                    page: currentPage,
+                    x: drawX,
+                    y: drawY,
+                    width: drawW,
+                    height: drawH,
+                    color: currentColor
+                });
+
+                isDrawingRectangle = false;
+                return;
+            }
+
+            isDrawing = false;
+            editCtx.beginPath();
+        }
+
+        function handleCanvasClick(e) {
+            if (editMode === 'text') {
+                const rect = editCanvas.getBoundingClientRect();
+                textPosition = {
+                    x: (e.clientX - rect.left) * (editCanvas.width / rect.width),
+                    y: (e.clientY - rect.top) * (editCanvas.height / rect.height)
+                };
+                showTextModal();
+            }
+        }
+
+        function showTextModal() {
+            document.getElementById('modalOverlay').style.display = 'block';
+            document.getElementById('textModal').style.display = 'block';
+            document.getElementById('textInput').focus();
+        }
+
+        function closeTextModal() {
+            document.getElementById('modalOverlay').style.display = 'none';
+            document.getElementById('textModal').style.display = 'none';
+            document.getElementById('textInput').value = '';
+        }
+
+        function addText() {
+            const text = document.getElementById('textInput').value;
+            if (text && textPosition) {
+                saveState();
+                editCtx.font = `${currentSize * 4}px Arial`;
+                editCtx.fillStyle = currentColor;
+                editCtx.fillText(text, textPosition.x, textPosition.y);
+            }
+            closeTextModal();
+        }
+
+        function saveState() {
+            editHistory.push(editCtx.getImageData(0, 0, editCanvas.width, editCanvas.height));
+            if (editHistory.length > 20) {
+                editHistory.shift();
+            }
+        }
+
+        function undo() {
+            if (editHistory.length > 0) {
+                const previousState = editHistory.pop();
+                editCtx.putImageData(previousState, 0, 0);
+                // Also remove the most recently drawn rectangle on this page
+                for (let i = rectangles.length - 1; i >= 0; i--) {
+                    if (rectangles[i].page === currentPage) {
+                        rectangles.splice(i, 1);
+                        break;
+                    }
+                }
+            }
+        }
+
+        function clearAll() {
+            if (confirm('すべての編集を削除しますか？')) {
+                clearEditCanvas();
+                editHistory = [];
+                // Clear recorded rectangles as well so they are not exported
+                rectangles.length = 0;
+            }
+        }
+
+        function clearEditCanvas() {
+            editCtx.clearRect(0, 0, editCanvas.width, editCanvas.height);
+        }
+
+        function zoom(factor) {
+            scale *= factor;
+            if (pdfDoc) {
+                renderPage(currentPage);
+            }
+        }
+
+        async function downloadPDF() {
+            if (!pdfDoc) {
+                alert('PDFが読み込まれていません。');
+                return;
+            }
+
+            try {
+                console.log('PDF保存開始...');
+                
+                // Check if PDFLib is available
+                if (typeof PDFLib === 'undefined') {
+                    console.log('PDFLib が利用できないため、画像として保存します');
+                    downloadAsImage();
+                    return;
+                }
+
+                // Get original PDF file
+                const file = fileInput.files[0];
+                if (!file) {
+                    alert('元のPDFファイルが見つかりません。');
+                    return;
+                }
+
+                // Read the original PDF
+                const existingPdfBytes = await file.arrayBuffer();
+                const pdfLibDoc = await PDFLib.PDFDocument.load(existingPdfBytes);
+                
+                // Build an overlay from the edit canvas, removing rectangles for the current page.
+                const overlayCanvas = document.createElement('canvas');
+                overlayCanvas.width = editCanvas.width;
+                overlayCanvas.height = editCanvas.height;
+                const overlayCtx = overlayCanvas.getContext('2d');
+                overlayCtx.drawImage(editCanvas, 0, 0);
+                // Remove rectangles by clearing slightly beyond their bounds to avoid residual AA
+                rectangles.forEach(rect => {
+                    if (rect.page === currentPage) {
+                        overlayCtx.save();
+                        overlayCtx.imageSmoothingEnabled = false;
+                        overlayCtx.globalCompositeOperation = 'destination-out';
+                        overlayCtx.fillRect(rect.x - 1, rect.y - 1, rect.width + 2, rect.height + 2);
+                        overlayCtx.restore();
+                    }
+                });
+                const overlayDataUrl = overlayCanvas.toDataURL('image/png');
+
+                // Determine if overlay has any content
+                const blankCanvas = document.createElement('canvas');
+                blankCanvas.width = overlayCanvas.width;
+                blankCanvas.height = overlayCanvas.height;
+                const isOverlayEmpty = (overlayDataUrl === blankCanvas.toDataURL('image/png'));
+                const hasRects = rectangles.some(r => r.page === currentPage);
+                // If there are no edits for this page and no rectangles, just return original PDF
+                if (!hasRects && isOverlayEmpty) {
+                    console.log('編集がないため、元のPDFをダウンロード');
+                    const blob = new Blob([existingPdfBytes], { type: 'application/pdf' });
+                    downloadBlob(blob, 'document.pdf');
+                    return;
+                }
+                const pages = pdfLibDoc.getPages();
+                const page = pages[currentPage - 1];
+                const { width, height } = page.getSize();
+                // Embed the overlay image only if it has content
+                if (!isOverlayEmpty) {
+                    const overlayImage = await pdfLibDoc.embedPng(overlayDataUrl);
+                    page.drawImage(overlayImage, {
+                        x: 0,
+                        y: 0,
+                        width: width,
+                        height: height,
+                    });
+                }
+                // Draw crisp vector rectangles onto the page
+                rectangles.forEach(rect => {
+                    if (rect.page === currentPage) {
+                        const yPdf = height - (rect.y + rect.height);
+                        const rgb = hexToRgb(rect.color);
+                        page.drawRectangle({
+                            // Expand by half a point on all sides to ensure no
+                            // underlying content peeks through due to
+                            // anti‑aliasing or coordinate rounding.  Using
+                            // fractional offsets is safe in PDF coordinates.
+                            x: rect.x - 0.5,
+                            y: yPdf - 0.5,
+                            width: rect.width + 1,
+                            height: rect.height + 1,
+                            color: PDFLib.rgb(rgb.r, rgb.g, rgb.b)
+                        });
+                    }
+                });
+                const pdfBytes = await pdfLibDoc.save();
+                console.log('PDF保存完了');
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                downloadBlob(blob, 'edited_document.pdf');
+                
+            } catch (error) {
+                console.error('PDF保存エラー:', error);
+                console.log('代替として画像保存を実行');
+                downloadAsImage();
+            }
+        }
+
+        function downloadAsImage() {
+            try {
+                console.log('編集内容を画像として保存...');
+                // Create a composite canvas for exporting
+                const compositeCanvas = document.createElement('canvas');
+                compositeCanvas.width = pdfCanvas.width;
+                compositeCanvas.height = pdfCanvas.height;
+                const compositeCtx = compositeCanvas.getContext('2d');
+                // Draw the underlying PDF
+                compositeCtx.drawImage(pdfCanvas, 0, 0);
+                // Prepare overlay minus rectangles
+                const overlayCanvasImg = document.createElement('canvas');
+                overlayCanvasImg.width = editCanvas.width;
+                overlayCanvasImg.height = editCanvas.height;
+                const overlayCtxImg = overlayCanvasImg.getContext('2d');
+                overlayCtxImg.drawImage(editCanvas, 0, 0);
+                rectangles.forEach(rect => {
+                    if (rect.page === currentPage) {
+                        overlayCtxImg.save();
+                        overlayCtxImg.imageSmoothingEnabled = false;
+                        overlayCtxImg.globalCompositeOperation = 'destination-out';
+                        overlayCtxImg.fillRect(rect.x - 1, rect.y - 1, rect.width + 2, rect.height + 2);
+                        overlayCtxImg.restore();
+                    }
+                });
+                // Draw remaining edits
+                compositeCtx.drawImage(overlayCanvasImg, 0, 0);
+                // Draw crisp rectangles
+                rectangles.forEach(rect => {
+                    if (rect.page === currentPage) {
+                        compositeCtx.fillStyle = rect.color;
+                        compositeCtx.globalAlpha = 1.0;
+                        compositeCtx.fillRect(rect.x, rect.y, rect.width, rect.height);
+                    }
+                });
+                // Save as PNG
+                compositeCanvas.toBlob(function(blob) {
+                    downloadBlob(blob, `edited_page_${currentPage}.png`);
+                }, 'image/png');
+                console.log('画像保存完了');
+                
+            } catch (error) {
+                console.error('保存エラー:', error);
+                alert(`保存に失敗しました: ${error.message}`);
+            }
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // Initialize
+        setEditMode('draw');
+    </script>
+</body>
+</html>
